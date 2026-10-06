@@ -230,11 +230,13 @@ comentario de cada `.service` tiene el comando para instalarla.
   polling, así que no hace falta exponer un webhook. Verifica el token con
   `docker compose -p price_tracker exec backend python -m tracker.cli telegram-check`.
 - **Discord**: cada usuario pega la URL de un webhook de su servidor.
-- **MercadoLibre**: crea una app en el [DevCenter](https://developers.mercadolibre.cl/devcenter)
+- **Mercado Libre Colombia**: usa `MELI_SITE_ID=MCO` (predeterminado) y crea una app en el [DevCenter](https://developers.mercadolibre.com.co/devcenter)
   con la redirect URI `$PUBLIC_URL/api/admin/meli/callback` (o la que pongas en
   `MELI_REDIRECT_URI`; debe coincidir exacto) y PKCE. Pon `MELI_CLIENT_ID` y
   `MELI_CLIENT_SECRET`, y conecta la cuenta desde el panel admin. Sin esto, la tienda
-  queda deshabilitada.
+  queda deshabilitada. Acepta catálogos `/p/MCO…` y publicaciones `/up/MCOU…`
+  en `mercadolibre.com.co`, con precios en COP. Los enlaces clásicos `/articulo/…`
+  requieren el enlace al catálogo del producto. Chile sigue disponible con `MELI_SITE_ID=MLC`.
 - **FlareSolverr** (solo Entrejuegos, que está detrás de Cloudflare): viene como servicio
   opcional en `docker-compose.yml`. Agrega `COMPOSE_PROFILES=flaresolverr` al `.env` de
   la raíz, pon `FLARESOLVERR_URL=http://flaresolverr:8191/v1` en `backend/.env` y vuelve

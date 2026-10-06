@@ -19,6 +19,7 @@ from tracker.models import OAuthToken
 @pytest.fixture
 def token_api(monkeypatch):
     """Simula /oauth/token; registra cada request y responde según `replies`."""
+    monkeypatch.setattr(settings, "meli_site_id", "MLC")
     monkeypatch.setattr(settings, "meli_client_id", "123")
     monkeypatch.setattr(settings, "meli_client_secret", "secreto")
     calls, replies = [], []

@@ -1,4 +1,4 @@
-"""Procesador de MercadoLibre Chile, vía API oficial (cuenta conectada en el panel admin).
+"""Procesador de Mercado Libre Colombia y Chile, vía API oficial (cuenta conectada en el panel admin).
 
 El HTML de mercadolibre.cl tiene un challenge antibots propio que FlareSolverr no
 resuelve, y la API no deja leer `/items` ni `/user-products` de otros vendedores. Lo
@@ -28,6 +28,7 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 from tracker import meli
+from tracker.meli_sites import HOST_SITES, site_for_id
 from tracker.processors.base import (
     FetchError,
     NotFoundError,
@@ -38,9 +39,9 @@ from tracker.processors.base import (
 )
 from tracker.processors.util import to_minor
 
-_HOSTS = {"mercadolibre.cl", "www.mercadolibre.cl"}
-_CATALOG_RE = re.compile(r"/p/(MLC\d+)", re.I)
-_UP_RE = re.compile(r"^/(?:([a-z0-9-]+)/)?up/(MLCU\d+)", re.I)
+_HOSTS = set(HOST_SITES)
+_CATALOG_RE = re.compile(r"/p/((?:MCO|MLC)\d+)(?=/|$)", re.I)
+_UP_RE = re.compile(r"^/(?:([a-z0-9-]+)/)?up/((?:MCO|MLC)U\d+)(?=/|$)", re.I)
 # Candidatos del catálogo que se revisan al buscar a qué catálogo pertenece una publicación.
 _MAX_CANDIDATES = 20
 
@@ -95,14 +96,14 @@ def describe(item: dict) -> str:
 
 class MercadoLibreProcessor(Processor):
     name = "mercadolibre"
-    label = "MercadoLibre"
+    label = "Mercado Libre Colombia"
     check_interval = timedelta(hours=6)
     fixture_ext = "json"
     # Precios de la API: una caída grande es real, y "sin ofertas" es un agotado real.
     anomaly_drop_pct = None
     sold_out_without_price = True
-    home_url = "https://www.mercadolibre.cl/"
-    example_url = "https://www.mercadolibre.cl/p/MLC48419682"
+    home_url = "https://www.mercadolibre.com.co/"
+    example_url = "https://www.mercadolibre.com.co/p/MCO67417938"
     platform = "API de MercadoLibre"
     supports_list_price = True
     variants_title = "¿Qué oferta seguir?"
@@ -111,9 +112,9 @@ class MercadoLibreProcessor(Processor):
         "marca las que quieras."
     )
     notes = (
-        "Con un link de catálogo (/p/MLC…) eliges qué oferta seguir: la tienda oficial "
+        "Mercado Libre Colombia (COP). Con un link de catálogo (/p/MCO…) eliges qué oferta seguir: la tienda oficial "
         "(o, si no hay, el más barato nacional), el más barato nacional o el más barato "
-        "incluidas las compras internacionales. Con el link de una publicación (/up/MLCU…) "
+        "incluidas las compras internacionales. Con el link de una publicación (/up/MCOU…) "
         "se sigue esa publicación. Requiere que el admin tenga MercadoLibre conectado."
     )
 
@@ -124,26 +125,34 @@ class MercadoLibreProcessor(Processor):
             return False
         if parts.hostname not in _HOSTS:
             return False
-        return bool(_CATALOG_RE.search(parts.path) or _UP_RE.match(parts.path))
+        match = _CATALOG_RE.search(parts.path) or _UP_RE.match(parts.path)
+        pid = match.group(1 if match.re is _CATALOG_RE else 2).upper() if match else ""
+        return bool(pid and pid[:3] == HOST_SITES[parts.hostname])
 
     def normalize(self, url: str) -> ProductRef:
         parts = urlsplit(url.strip())
         if parts.hostname not in _HOSTS:
-            raise ValueError("no es una URL de MercadoLibre Chile")
+            raise ValueError("no es una URL de Mercado Libre Colombia o Chile")
         m = _CATALOG_RE.search(parts.path)
         if m:
             pid = m.group(1).upper()
+            if pid[:3] != HOST_SITES[parts.hostname]:
+                raise ValueError("el país del enlace no coincide con el producto")
+            host = site_for_id(pid)["host"]
             mode = (parse_qs(parts.query).get("modo") or [""])[0].lower()
             if mode not in MODES:
                 mode = ""
-            url = f"https://www.mercadolibre.cl/p/{pid}" + (f"?modo={mode}" if mode else "")
+            url = f"https://{host}/p/{pid}" + (f"?modo={mode}" if mode else "")
             return ProductRef(pid, url, mode)
         m = _UP_RE.match(parts.path)
         if m:
             slug, up = (m.group(1) or "").lower(), m.group(2).upper()
+            if up[:3] != HOST_SITES[parts.hostname]:
+                raise ValueError("el país del enlace no coincide con el producto")
+            host = site_for_id(up)["host"]
             path = f"/{slug}/up/{up}" if slug else f"/up/{up}"
-            return ProductRef(up, f"https://www.mercadolibre.cl{path}")
-        raise ValueError("pega el link de un producto de MercadoLibre (/p/MLC… o /up/MLCU…)")
+            return ProductRef(up, f"https://{host}{path}")
+        raise ValueError("pega el link de un producto de MercadoLibre (/p/MCO… o /up/MCOU…)")
 
     def domain(self) -> str:
         return "api.mercadolibre.com"
@@ -151,7 +160,7 @@ class MercadoLibreProcessor(Processor):
     async def fetch_raw(self, ref: ProductRef) -> str:
         """JSON con el producto de catálogo y sus publicaciones (el `parse` es puro)."""
         try:
-            if ref.external_id.startswith("MLCU"):
+            if ref.external_id[3:4] == "U":
                 catalog_id = await self._catalog_for(ref)
             else:
                 catalog_id = ref.external_id
@@ -177,15 +186,17 @@ class MercadoLibreProcessor(Processor):
         terms = re.sub(r"-+", " ", slug).strip()
         if not terms:
             raise FetchError(
-                "este link no trae el nombre del producto; usa el link del catálogo (/p/MLC…)"
+                "este link no trae el nombre del producto; usa el link del catálogo (/p/MCO… en Colombia)"
             )
         r = await meli.get(
             "/products/search",
-            {"status": "active", "site_id": "MLC", "q": terms, "limit": _MAX_CANDIDATES},
+            {"status": "active", "site_id": up[:3], "q": terms, "limit": _MAX_CANDIDATES},
         )
         if r.status_code != 200:
             raise FetchError(f"HTTP {r.status_code} buscando en el catálogo")
         for cand in r.json().get("results") or []:
+            if not str(cand.get("id", "")).startswith(up[:3]):
+                continue
             ri = await meli.get(f"/products/{cand['id']}/items")
             if ri.status_code != 200:
                 continue
@@ -194,14 +205,15 @@ class MercadoLibreProcessor(Processor):
                 return cand["id"]
         raise NotFoundError(
             "no encontré esta publicación en el catálogo de MercadoLibre (puede estar agotada "
-            "o no pertenecer a un catálogo); prueba con el link del catálogo (/p/MLC…)"
+            "o no pertenecer a un catálogo); prueba con el link del catálogo (/p/MCO… en Colombia)"
         )
 
     def parse(self, raw: str, ref: ProductRef) -> ScrapeResult:
         data = json.loads(raw)
         product = data.get("product") or {}
-        items = [i for i in data.get("items") or [] if i.get("currency_id", "CLP") == "CLP"]
-        if ref.external_id.startswith("MLCU"):
+        currency = site_for_id(ref.external_id)["currency"]
+        items = [i for i in data.get("items") or [] if i.get("currency_id", currency) == currency]
+        if ref.external_id[3:4] == "U":
             chosen = [i for i in items if i.get("user_product_id") == ref.external_id]
             best = min(chosen, key=lambda i: i.get("price") or float("inf"), default=None)
         else:
@@ -213,30 +225,34 @@ class MercadoLibreProcessor(Processor):
                 title=product.get("name") or "",
                 price=None,
                 list_price=None,
-                currency="CLP",
+                currency=currency,
                 available=False,
                 image_url=image,
             )
-        price = to_minor(best["price"], "CLP")
+        price = to_minor(best["price"], currency)
         original = best.get("original_price")
-        list_price = to_minor(original, "CLP") if original and original > best["price"] else None
+        list_price = to_minor(original, currency) if original and original > best["price"] else None
         return ScrapeResult(
             title=product.get("name") or "",
             price=price,
             list_price=list_price,
-            currency="CLP",
+            currency=currency,
             available=True,
             image_url=image,
         )
 
     def parse_variants(self, raw: str, ref: ProductRef) -> list[Variant]:
         """Las ofertas que se pueden seguir de un catálogo, con su precio de hoy."""
-        if ref.external_id.startswith("MLCU"):
+        if ref.external_id[3:4] == "U":
             return []
+        site = site_for_id(ref.external_id)
+        currency = site["currency"]
         items = [
-            i for i in json.loads(raw).get("items") or [] if i.get("currency_id", "CLP") == "CLP"
+            i
+            for i in json.loads(raw).get("items") or []
+            if i.get("currency_id", currency) == currency
         ]
-        base = f"https://www.mercadolibre.cl/p/{ref.external_id}"
+        base = f"https://{site['host']}/p/{ref.external_id}"
         out: list[Variant] = []
         seen: set[str | None] = set()
         for mode, label in MODES.items():
@@ -248,6 +264,8 @@ class MercadoLibreProcessor(Processor):
                 continue
             seen.add(key)
             price = f"${best['price']:,.0f}".replace(",", ".")
+            if currency == "COP":
+                price = "COP " + price
             out.append(
                 Variant(
                     url=base + (f"?modo={mode}" if mode else ""),
@@ -260,7 +278,7 @@ class MercadoLibreProcessor(Processor):
         return out
 
     def variant_label(self, external_id: str, variant_id: str) -> str:
-        if external_id.startswith("MLCU"):
+        if external_id[3:4] == "U":
             return ""
         return MODES.get(variant_id, "")
 

@@ -134,7 +134,7 @@ function MeliConnection() {
   return (
     <section className="card">
       <div className="row-between">
-        <h2>MercadoLibre</h2>
+        <h2>Mercado Libre {st.country}</h2>
         <span className={`store-status ${st.connected ? "ok" : "unknown"}`}>
           {st.connected ? "Conectado" : "No conectado"}
         </span>
@@ -142,7 +142,11 @@ function MeliConnection() {
       {result === "ok" && <p className="ok-msg">✅ Cuenta conectada.</p>}
       {result === "error" && <p className="error">No se pudo conectar: {params.get("msg")}</p>}
       {!st.configured ? (
-        <p className="muted">Falta configurar MELI_CLIENT_ID y MELI_CLIENT_SECRET en el .env.</p>
+        <div>
+          <p className="muted">Registra tu aplicación en Mercado Libre {st.country} y configura su ID y clave secreta en Railway (MELI_CLIENT_ID y MELI_CLIENT_SECRET).</p>
+          <p className="small">URL de retorno que debes registrar: <code>{st.redirect_uri}</code></p>
+          <a href="https://developers.mercadolibre.com.co/devcenter" target="_blank" rel="noreferrer">Abrir aplicaciones de Mercado Libre</a>
+        </div>
       ) : (
         <>
           {st.connected && (

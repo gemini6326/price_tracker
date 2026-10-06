@@ -20,10 +20,10 @@ from sqlalchemy.orm import Session as DbSession
 
 from tracker.config import settings
 from tracker.db import SessionLocal, utcnow
+from tracker.meli_sites import SITES
 from tracker.models import OAuthToken
 
 PROVIDER = "meli"
-AUTH_URL = "https://auth.mercadolibre.cl/authorization"
 TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
 API = "https://api.mercadolibre.com"
 # Se renueva si al token le queda menos que esto.
@@ -68,7 +68,7 @@ def authorization_url() -> str:
         "code_challenge": challenge.rstrip(b"=").decode(),
         "code_challenge_method": "S256",
     }
-    return f"{AUTH_URL}?{urlencode(query)}"
+    return f"{SITES[settings.meli_site_id]['auth']}?{urlencode(query)}"
 
 
 async def _token_request(data: dict) -> dict:
@@ -164,6 +164,9 @@ async def get(path: str, params: dict | None = None) -> httpx.Response:
 def status(db: DbSession) -> dict:
     tok = db.get(OAuthToken, PROVIDER)
     return {
+        "site_id": settings.meli_site_id,
+        "country": SITES[settings.meli_site_id]["country"],
+        "redirect_uri": settings.meli_redirect_uri,
         "configured": configured(),
         "connected": tok is not None,
         "account_id": tok.account_id if tok else None,

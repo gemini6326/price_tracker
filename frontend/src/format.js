@@ -1,6 +1,6 @@
 // Montos enteros en unidad mínima → texto. Mismo criterio que el backend.
 const EXPONENT = { CLP: 0, JPY: 0, KRW: 0, PYG: 0, ISK: 0, VND: 0 };
-const SYMBOL = { CLP: "$", USD: "US$", EUR: "€" };
+const SYMBOL = { CLP: "$", COP: "COP $", USD: "US$", EUR: "€" };
 
 export const exponent = (cur) => EXPONENT[(cur || "CLP").toUpperCase()] ?? 2;
 
@@ -8,7 +8,7 @@ export function formatPrice(amount, currency = "CLP") {
   if (amount === null || amount === undefined) return "sin precio";
   const exp = exponent(currency);
   const value = amount / 10 ** exp;
-  const text = value.toLocaleString("es-CL", {
+  const text = value.toLocaleString(currency === "COP" ? "es-CO" : "es-CL", {
     minimumFractionDigits: exp,
     maximumFractionDigits: exp,
   });

@@ -47,6 +47,9 @@ class Settings:
     meli_client_secret: str = field(
         default_factory=lambda: os.environ.get("MELI_CLIENT_SECRET", "").strip()
     )
+    meli_site_id: str = field(
+        default_factory=lambda: os.environ.get("MELI_SITE_ID", "MCO").strip().upper()
+    )
     # Vacío = f"{PUBLIC_URL}/api/admin/meli/callback". Debe coincidir exacto con la
     # redirect URI registrada en la app de MercadoLibre.
     meli_redirect_uri: str = field(default_factory=lambda: os.environ.get("MELI_REDIRECT_URI", ""))
@@ -59,6 +62,10 @@ class Settings:
     manual_check_cooldown_min: int = 15
 
     def __post_init__(self) -> None:
+        from tracker.meli_sites import SITES
+
+        if self.meli_site_id not in SITES:
+            raise ValueError("MELI_SITE_ID debe ser MCO (Colombia) o MLC (Chile)")
         if not self.meli_redirect_uri:
             self.meli_redirect_uri = f"{self.public_url}/api/admin/meli/callback"
 
